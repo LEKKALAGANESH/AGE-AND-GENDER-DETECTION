@@ -5,6 +5,32 @@ import { Camera as CameraIcon, Upload, Video, VideoOff, Loader2 } from "lucide-r
 import clsx from "clsx";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/analyze";
+const HEALTH_URL = API_URL.replace(/\/analyze$/, "/health");
+const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024; // 4MB safety margin (Vercel limit: 4.5MB)
+
+/** Compress an image to fit within Vercel's payload limit. */
+function compressImage(
+  base64: string,
+  maxWidth = 800,
+  quality = 0.7,
+): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = base64;
+  });
+}
 
 interface FaceResult {
   age: number;
@@ -33,6 +59,8 @@ export function Camera() {
   const [error, setError] = useState<string | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [debug, setDebug] = useState(false);
+  const [debugMsg, setDebugMsg] = useState<string | null>(null);
 
   // ── Start webcam ──
   const startCamera = useCallback(async () => {
@@ -68,14 +96,26 @@ export function Camera() {
   // ── Analyze a single base64 image ──
   const analyze = useCallback(async (base64: string): Promise<AnalyzeResponse | null> => {
     try {
+      // Compress if payload would exceed Vercel's limit
+      let image = base64;
+      const rawSize = new Blob([JSON.stringify({ image })]).size;
+      if (rawSize > MAX_PAYLOAD_BYTES) {
+        image = await compressImage(base64, 800, 0.6);
+      }
+
+      const body = JSON.stringify({ image });
+      if (body.length > MAX_PAYLOAD_BYTES) {
+        throw new Error(`Image too large (${(body.length / 1024 / 1024).toFixed(1)}MB). Try a smaller image.`);
+      }
+
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64 }),
+        body,
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Request failed" }));
-        throw new Error(err.detail || "Request failed");
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
       }
       return await res.json();
     } catch (e) {
@@ -166,13 +206,13 @@ export function Camera() {
 
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = reader.result as string;
+      const raw = reader.result as string;
+      // Always compress uploads — photos from phones can be 5-15MB
+      const base64 = await compressImage(raw, 1024, 0.7);
       setUploadPreview(base64);
       const data = await analyze(base64);
       if (data) {
         setResults(data);
-        // Draw overlay on a temporary canvas over the uploaded image
-        // We'll handle this in the render with the overlay canvas
       }
     };
     reader.readAsDataURL(file);
@@ -292,6 +332,76 @@ export function Camera() {
           </>
         )}
       </div>
+
+      {/* ── Debug toggle ── */}
+      <div className="flex justify-center">
+        <button
+          onClick={() => setDebug((d) => !d)}
+          className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          {debug ? "Hide" : "Show"} Debug
+        </button>
+      </div>
+      {debug && (
+        <div className="space-y-2 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-500">API:</span>
+            <span className="text-zinc-300">{API_URL}</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                setDebugMsg("Pinging...");
+                try {
+                  const t0 = performance.now();
+                  const res = await fetch(HEALTH_URL);
+                  const ms = Math.round(performance.now() - t0);
+                  const data = await res.json();
+                  setDebugMsg(`${res.status} OK — ${ms}ms — ${JSON.stringify(data)}`);
+                } catch (e) {
+                  setDebugMsg(`FAIL: ${e instanceof Error ? e.message : "Network error"}`);
+                }
+              }}
+              className="px-3 py-1 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-300"
+            >
+              Ping /api/health
+            </button>
+            <button
+              onClick={async () => {
+                setDebugMsg("Sending 10x10 test...");
+                const c = document.createElement("canvas");
+                c.width = 10; c.height = 10;
+                const ctx = c.getContext("2d")!;
+                ctx.fillStyle = "#888";
+                ctx.fillRect(0, 0, 10, 10);
+                const tiny = c.toDataURL("image/jpeg", 0.5);
+                const t0 = performance.now();
+                const data = await analyze(tiny);
+                const ms = Math.round(performance.now() - t0);
+                if (data) {
+                  setDebugMsg(`OK — ${ms}ms — ${data.face_count} faces — ${data.processing_time_ms}ms server`);
+                  setError(null);
+                } else {
+                  setDebugMsg(`POST failed after ${ms}ms — check error above`);
+                }
+              }}
+              className="px-3 py-1 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-300"
+            >
+              Test 10x10 POST
+            </button>
+          </div>
+          {debugMsg && (
+            <div className={clsx(
+              "p-2 rounded",
+              debugMsg.startsWith("FAIL") || debugMsg.includes("failed")
+                ? "bg-red-500/10 text-red-400"
+                : "bg-emerald-500/10 text-emerald-400"
+            )}>
+              {debugMsg}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Error ── */}
       {error && (

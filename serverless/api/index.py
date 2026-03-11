@@ -82,12 +82,12 @@ def load_models() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load models on cold start."""
+    """Load models on cold start — graceful fallback if missing."""
     try:
         load_models()
-    except FileNotFoundError as exc:
+    except Exception as exc:
         logger.error("Model loading failed: %s", exc)
-        raise
+        # Don't crash — the app will return 503 on /api/analyze
     yield
 
 
