@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.env.local
+npm-debug.log*
+
+# AI / ML Models (auto-downloaded at runtime)
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Claude
+.claude
