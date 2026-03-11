@@ -4,7 +4,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Camera as CameraIcon, Upload, Video, VideoOff, Loader2 } from "lucide-react";
 import clsx from "clsx";
 
-const API_URL = "http://localhost:8000/analyze";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/analyze";
 
 interface FaceResult {
   age: number;
@@ -96,7 +96,15 @@ export function Camera() {
     ctx.clearRect(0, 0, width, height);
 
     data.results.forEach((face) => {
-      const [x, y, w, h] = face.region;
+      const [rx, ry, rw, rh] = face.region;
+
+      // Support both normalized (0-1) and pixel coordinates
+      const isNormalized = rx <= 1 && ry <= 1 && rw <= 1 && rh <= 1;
+      const x = isNormalized ? rx * width : rx;
+      const y = isNormalized ? ry * height : ry;
+      const w = isNormalized ? rw * width : rw;
+      const h = isNormalized ? rh * height : rh;
+
       const color = face.gender === "Male" ? "#3b82f6" : "#ec4899";
 
       // Box

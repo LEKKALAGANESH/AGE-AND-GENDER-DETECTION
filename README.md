@@ -7,6 +7,7 @@ A high-performance, zero-database age and gender detection system. FastAPI backe
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Python, FastAPI, OpenCV DNN, Uvicorn |
+| **Serverless** | Vercel Python Functions, FastAPI, opencv-python-headless |
 | **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
 | **Models** | Pre-trained Caffe models (face detection, age, gender) |
 | **Inference** | OpenCV DNN module — no TensorFlow required |
@@ -35,6 +36,13 @@ age_gender_detection/
 │   │   └── components/
 │   │       └── Camera.tsx  # Webcam + upload + overlay
 │   └── [config files]
+├── serverless/
+│   ├── api/
+│   │   └── index.py        # FastAPI entry point (Vercel)
+│   ├── models/
+│   │   └── download_models.py  # Model download script
+│   └── requirements.txt
+├── vercel.json              # Vercel deployment config
 └── README.md
 ```
 
@@ -65,6 +73,57 @@ npm run dev
 
 The dashboard opens at `http://localhost:3000`.
 
+---
+
+### Option B: Serverless Mode (local)
+
+Run the Vercel-ready serverless backend locally using `uvicorn` — useful for testing before deploying.
+
+#### 1. Download Models
+
+```bash
+cd serverless/models
+python download_models.py
+```
+
+This downloads ~100 MB of Caffe model weights into `serverless/models/`. To check if models are already present:
+
+```bash
+python download_models.py --verify
+```
+
+#### 2. Start the Serverless API
+
+```bash
+cd serverless
+pip install -r requirements.txt
+pip install uvicorn
+python -m uvicorn api.index:app --reload --port 8000
+```
+
+The API runs at `http://localhost:8000` with endpoints at `/api/analyze` and `/api/health`.
+
+#### 3. Start the Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+> **Note:** The frontend currently points to `http://localhost:8000/analyze`. To use the serverless API (which serves at `/api/analyze`), update the `API_URL` in `Camera.tsx` to `http://localhost:8000/api/analyze`.
+
+#### Key Differences from the Standard Backend
+
+| | `backend/` | `serverless/` |
+|---|---|---|
+| Bounding box format | Pixel values `[x, y, w, h]` | Normalized 0.0–1.0 `[x, y, w, h]` |
+| Model download | Auto-downloads on startup | Run `download_models.py` first |
+| CORS | `localhost:3000` only | All origins (`*`) |
+| Deployment | Local only (Uvicorn) | Vercel-compatible |
+
+---
+
 ## API
 
 ### `POST /analyze`
@@ -78,7 +137,7 @@ Accepts a base64-encoded image and returns detected faces with age and gender pr
 }
 ```
 
-**Response:**
+**Response (backend):**
 ```json
 {
   "results": [
@@ -94,9 +153,25 @@ Accepts a base64-encoded image and returns detected faces with age and gender pr
 }
 ```
 
+**Response (serverless)** — bounding box values are normalized (0.0–1.0):
+```json
+{
+  "results": [
+    {
+      "age": 28,
+      "gender": "Male",
+      "confidence": 0.9542,
+      "region": [0.1875, 0.09375, 0.28125, 0.416667]
+    }
+  ],
+  "face_count": 1,
+  "processing_time_ms": 42.5
+}
+```
+
 ### `GET /health`
 
-Returns `{"status": "ok"}`.
+Returns `{"status": "ok"}` (serverless adds `"models_loaded": true/false`).
 
 ### API Docs
 
@@ -137,6 +212,18 @@ All models use the Caffe framework and run on CPU via OpenCV's DNN module.
 - Frame cache eliminates redundant computation
 - No GPU required
 
+## Deploying to Vercel
+
+```bash
+# 1. Download models into serverless/models/
+cd serverless/models && python download_models.py && cd ../..
+
+# 2. Deploy
+vercel
+```
+
+The `vercel.json` routes `/api/*` to the Python function and everything else to the Next.js frontend. The Python function runs with 1024 MB memory and a 10-second timeout.
+
 ## Troubleshooting
 
 | Problem | Solution |
@@ -146,6 +233,8 @@ All models use the Caffe framework and run on CPU via OpenCV's DNN module.
 | Webcam not working | Allow camera permissions in your browser |
 | CORS error | Backend must be running on `localhost:8000` |
 | TensorFlow errors | Not needed — this project uses OpenCV DNN only |
+| Serverless models missing | Run `cd serverless/models && python download_models.py` |
+| Serverless cold start slow | Models are ~100 MB; first request may take a few seconds |
 
 ## License
 
