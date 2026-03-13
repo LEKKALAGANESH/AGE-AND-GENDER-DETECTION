@@ -2,7 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background: #0a0a0a;
-  color: #ededed;
+@layer base {
+  :root {
+    --color-bg: 10 10 10;
+    --color-text: 237 237 237;
+  }
+
+  body {
+    background-color: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --color-bg: 250 250 250;
+      --color-text: 23 23 23;
+    }
+  }
+}
+
+/* ── Vital Signs Animations ── */
+
+/* Pulsing dot for dominant gender indicator and LIVE badge */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* Scanning laser glow pulse for canvas overlay */
+@keyframes scanPulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }

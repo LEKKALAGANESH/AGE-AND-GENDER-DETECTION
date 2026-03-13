@@ -1,0 +1,10 @@
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/analyze";
+export const HEALTH_URL = API_URL.replace(/\/analyze$/, "/health");
+export const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024; // 4MB safety margin (Vercel limit: 4.5MB)
+export const COMPRESS_MAX_WIDTH = 800;
+export const COMPRESS_QUALITY = 0.7;
+export const COMPRESS_QUALITY_AGGRESSIVE = 0.6;
+export const UPLOAD_MAX_WIDTH = 1024;
+export const STREAM_INTERVAL_MS = 100;
+export const FETCH_TIMEOUT_MS = 15000;
+export const COMPRESS_TIMEOUT_MS = 10000;
