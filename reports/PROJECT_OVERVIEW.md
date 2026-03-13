@@ -12,7 +12,7 @@ built on a FastAPI backend and a Next.js 15 frontend, with all machine-learning
 inference executed through ONNX models via OpenCV's DNN module -- eliminating the need
 for PyTorch or TensorFlow at runtime. This architecture yields a small deployment
 footprint, fast cold-start times, and predictable resource consumption suitable for
-serverless and containerized environments.
+cloud and containerized environments.
 
 ---
 

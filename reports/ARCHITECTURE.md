@@ -314,7 +314,7 @@ All settings are managed via `pydantic-settings` with the environment variable p
                                │
                     ┌──────────▼───────────┐
                     │  Next.js 15 Frontend │
-                    │  (Vercel Serverless) │
+                    │  (Vercel Hosting)    │
                     │                      │
                     │  Static assets +     │
                     │  SSR pages           │

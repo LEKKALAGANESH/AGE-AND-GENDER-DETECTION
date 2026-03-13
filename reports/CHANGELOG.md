@@ -33,11 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - YuNet face detector (replaced by SCRFD 10G KPS).
 
-## [3.x] — Vercel Serverless Architecture
+## [3.x] — Vercel Deployment Architecture
 
 ### Added
 
-- Vercel serverless backend with normalized bounding boxes.
+- Vercel-compatible backend with normalized bounding boxes.
 
 ### Changed
 
