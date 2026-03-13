@@ -19,7 +19,8 @@ npm-debug.log*
 
 # AI / ML Models (auto-downloaded at runtime)
 models/
-serverless/models/*.caffemodel
+*.caffemodel
+*.onnx
 
 # IDE
 .vscode/
@@ -34,5 +35,5 @@ Desktop.ini
 # Claude
 .claude
 
-
+# GitHub
 .github

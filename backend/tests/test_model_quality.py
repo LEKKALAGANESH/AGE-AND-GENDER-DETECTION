@@ -3,7 +3,7 @@
 Verifies that the age/gender detection system produces varied,
 high-quality results — not pre-planned categorical outputs.
 
-These tests use mocked inference backends (YuNet face detector + InsightFace
+These tests use mocked inference backends (SCRFD face detector + InsightFace
 genderage_net) to validate response structure, variability, and performance.
 """
 
@@ -90,41 +90,34 @@ def _make_varied_images(n: int = 20) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures — mocked client using YuNet + genderage_net architecture
+# Fixtures — mocked client using SCRFD + genderage_net architecture
 # ---------------------------------------------------------------------------
 
 
-def _build_yunet_mock_varied(call_counter: dict):
-    """Return a FaceDetectorYN mock that always detects one face.
+def _build_scrfd_mock_varied(call_counter: dict):
+    """Return an SCRFD-format mock that always detects one face.
 
-    The returned mock's `detect` method produces a single YuNet-format
-    row each time with landmarks.  The bounding-box stays roughly centred.
+    Returns (det[N,5], kpss[N,5,2]) in SCRFD format.
     """
     mock = MagicMock()
-    mock.setInputSize = MagicMock()
 
-    def _detect(img):
-        # YuNet row: [x, y, w, h, lm1x, lm1y, ..., lm5x, lm5y, score]  -> 15 floats
+    def _detect(img, conf_threshold=None, max_num=0):
         h, w = img.shape[:2]
-        row = np.zeros((1, 15), dtype=np.float32)
-        row[0, 0] = w * 0.2   # x
-        row[0, 1] = h * 0.2   # y
-        row[0, 2] = w * 0.6   # w
-        row[0, 3] = h * 0.6   # h
-        # Landmarks
-        row[0, 4] = w * 0.35   # right eye x
-        row[0, 5] = h * 0.35   # right eye y
-        row[0, 6] = w * 0.65   # left eye x
-        row[0, 7] = h * 0.35   # left eye y
-        row[0, 8] = w * 0.5    # nose x
-        row[0, 9] = h * 0.5    # nose y
-        row[0, 10] = w * 0.35  # right mouth x
-        row[0, 11] = h * 0.65  # right mouth y
-        row[0, 12] = w * 0.65  # left mouth x
-        row[0, 13] = h * 0.65  # left mouth y
-        row[0, 14] = 0.95      # score
+        det = np.zeros((1, 5), dtype=np.float32)
+        det[0] = [w * 0.2, h * 0.2, w * 0.8, h * 0.8, 0.95]
+
+        kpss = np.zeros((1, 5, 2), dtype=np.float32)
+        kpss[0, 0] = [w * 0.35, h * 0.35]  # left eye
+        kpss[0, 1] = [w * 0.65, h * 0.35]  # right eye
+        kpss[0, 2] = [w * 0.5, h * 0.5]    # nose
+        kpss[0, 3] = [w * 0.35, h * 0.65]  # left mouth
+        kpss[0, 4] = [w * 0.65, h * 0.65]  # right mouth
+
         call_counter["n"] += 1
-        return 1, row
+        if max_num > 0:
+            det = det[:max_num]
+            kpss = kpss[:max_num]
+        return det, kpss
 
     mock.detect = _detect
     return mock
@@ -135,7 +128,7 @@ def _build_genderage_mock_varied(call_counter: dict):
     age predictions and varying gender confidences.
 
     The InsightFace genderage model output is [1, 3]:
-      [0:2] = gender logits (Female, Male), [2] = age_factor (age = factor * 100)
+      [0:2] = gender logits (Male, Female), [2] = age_factor (age = factor * 100)
 
     Each successive call shifts the age and gender logits so that
     the collected results span a realistic distribution.
@@ -152,15 +145,16 @@ def _build_genderage_mock_varied(call_counter: dict):
         # Gender logits that produce varying softmax probabilities
         # ~60% Male predictions, ~40% Female
         if (n * 17 + 3) % 5 < 2:
-            # Female-dominant: logits where Female > Male
-            female_logit = 1.0 + (n * 11 % 25) / 25.0
+            # Female-dominant: Female logit (index 1) > Male logit (index 0)
             male_logit = -0.5 - (n * 7 % 20) / 20.0
+            female_logit = 1.0 + (n * 11 % 25) / 25.0
         else:
-            # Male-dominant: logits where Male > Female
+            # Male-dominant: Male logit (index 0) > Female logit (index 1)
             male_logit = 1.0 + (n * 13 % 35) / 35.0
             female_logit = -0.5 - (n * 9 % 20) / 20.0
 
-        return np.array([[[female_logit, male_logit, age_factor]]], dtype=np.float32)[0]
+        # Convention: [Male_logit, Female_logit, age_factor]
+        return np.array([[[male_logit, female_logit, age_factor]]], dtype=np.float32)[0]
 
     net.forward.side_effect = _forward
     return net
@@ -175,9 +169,9 @@ def _build_genderage_mock_deterministic():
     net.setInput = MagicMock()
 
     def _forward():
-        # gender logits: Female=-1.0, Male=2.0 -> softmax ~= [0.05, 0.95]
+        # gender logits: Male=2.0 (index 0), Female=-1.0 (index 1)
         # age factor: 0.28 -> age = 28
-        return np.array([[[-1.0, 2.0, 0.28]]], dtype=np.float32)[0]
+        return np.array([[[2.0, -1.0, 0.28]]], dtype=np.float32)[0]
 
     net.forward.side_effect = _forward
     return net
@@ -194,7 +188,7 @@ def _patch_models(monkeypatch):
 
 @pytest.fixture()
 def quality_client(_patch_models):
-    """A TestClient whose YuNet detector and genderage_net are mocked
+    """A TestClient whose SCRFD detector and genderage_net are mocked
     with *varied* return values — suitable for quality/variability tests.
     """
     from main import app
@@ -202,7 +196,7 @@ def quality_client(_patch_models):
     call_counter: dict = {"n": 0}
 
     with TestClient(app) as c:
-        app.state.face_detector = _build_yunet_mock_varied(call_counter)
+        app.state.face_detector = _build_scrfd_mock_varied(call_counter)
         app.state.genderage_net = _build_genderage_mock_varied(call_counter)
         yield c
 
@@ -216,7 +210,7 @@ def deterministic_client(_patch_models):
 
     call_counter: dict = {"n": 0}
     with TestClient(app) as c:
-        app.state.face_detector = _build_yunet_mock_varied(call_counter)
+        app.state.face_detector = _build_scrfd_mock_varied(call_counter)
         app.state.genderage_net = _build_genderage_mock_deterministic()
         yield c
 

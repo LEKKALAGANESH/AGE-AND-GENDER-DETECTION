@@ -119,12 +119,13 @@ class TestGracefulDegradation:
     def test_works_without_emotion_model(self, _patch_models):
         """If emotion_net is None, inference should still work (just no emotion data)."""
         from main import app
-        from tests.conftest import _build_yunet_mock, _build_genderage_mock, _make_test_image_b64
+        from tests.conftest import _build_scrfd_mock, _build_genderage_mock, _build_fairface_mock, _make_test_image_b64
 
         with TestClient(app) as c:
-            app.state.face_detector = _build_yunet_mock()
+            app.state.face_detector = _build_scrfd_mock()
             app.state.genderage_net = _build_genderage_mock()
             app.state.emotion_net = None  # explicitly no emotion model
+            app.state.fairface_net = _build_fairface_mock()
 
             resp = c.post("/api/analyze", json={"image": _make_test_image_b64()})
             assert resp.status_code == 200

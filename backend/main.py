@@ -85,14 +85,17 @@ settings = Settings()
 # ---------------------------------------------------------------------------
 
 MODELS = {
-    "face_detection_yunet_2023mar.onnx": {
-        "url": "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    "scrfd_10g_kps.onnx": {
+        "url": "https://github.com/Holasyb918/HeyGem-Linux-Python-Hack/releases/download/ckpts_and_onnx/scrfd_10g_kps.onnx",
     },
     "genderage.onnx": {
         "url": "https://huggingface.co/public-data/insightface/resolve/main/models/buffalo_l/genderage.onnx",
     },
     "emotion-ferplus-8.onnx": {
         "url": "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx",
+    },
+    "fairface.onnx": {
+        "url": "https://github.com/yakhyo/fairface-onnx/releases/download/weights/fairface.onnx",
     },
 }
 
@@ -123,6 +126,181 @@ def _get_inference_semaphore() -> asyncio.Semaphore:
     if _inference_semaphore is None:
         _inference_semaphore = asyncio.Semaphore(settings.max_concurrent_inferences)
     return _inference_semaphore
+
+
+# ---------------------------------------------------------------------------
+# SCRFD face detector (replaces YuNet for better occlusion/lighting handling)
+# ---------------------------------------------------------------------------
+
+
+def _distance2bbox(points: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """Decode anchor distances to bounding boxes [x1, y1, x2, y2]."""
+    x1 = points[:, 0] - distance[:, 0]
+    y1 = points[:, 1] - distance[:, 1]
+    x2 = points[:, 0] + distance[:, 2]
+    y2 = points[:, 1] + distance[:, 3]
+    return np.stack([x1, y1, x2, y2], axis=-1)
+
+
+def _distance2kps(points: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """Decode anchor distances to 5 facial keypoints."""
+    preds = []
+    for i in range(0, distance.shape[1], 2):
+        px = points[:, 0] + distance[:, i]
+        py = points[:, 1] + distance[:, i + 1]
+        preds.append(px)
+        preds.append(py)
+    return np.stack(preds, axis=-1)
+
+
+class SCRFDDetector:
+    """SCRFD face detector using cv2.dnn.
+
+    WIDERFace Hard AP: 82.8% (10G_KPS) vs YuNet's 70.8%.
+    Outputs 5 facial landmarks compatible with ArcFace alignment.
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        input_size: tuple[int, int] = (640, 640),
+        conf_threshold: float = 0.5,
+        nms_threshold: float = 0.4,
+    ):
+        self.net = cv2.dnn.readNet(model_path)
+        self.input_size = input_size  # (width, height)
+        self.conf_threshold = conf_threshold
+        self.nms_threshold = nms_threshold
+        self.feat_stride_fpn = [8, 16, 32]
+        self.num_anchors = 2
+        output_names = self.net.getUnconnectedOutLayersNames()
+        self.output_names = list(output_names)
+        self.use_kps = len(output_names) == 9
+        self._anchor_cache: dict[tuple[int, int, int], np.ndarray] = {}
+
+    def _get_anchor_centers(self, height: int, width: int, stride: int) -> np.ndarray:
+        key = (height, width, stride)
+        if key in self._anchor_cache:
+            return self._anchor_cache[key]
+        anchor_centers = np.stack(
+            np.mgrid[:height, :width][::-1], axis=-1
+        ).astype(np.float32)
+        anchor_centers = (anchor_centers * stride).reshape((-1, 2))
+        if self.num_anchors > 1:
+            anchor_centers = np.stack(
+                [anchor_centers] * self.num_anchors, axis=1
+            ).reshape((-1, 2))
+        self._anchor_cache[key] = anchor_centers
+        return anchor_centers
+
+    def detect(
+        self, img: np.ndarray, conf_threshold: float | None = None, max_num: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Detect faces. Returns (detections[N,5], keypoints[N,5,2] or None).
+
+        detections columns: [x1, y1, x2, y2, score] in original image coords.
+        keypoints: 5 landmarks [left_eye, right_eye, nose, left_mouth, right_mouth].
+        """
+        threshold = conf_threshold if conf_threshold is not None else self.conf_threshold
+        input_w, input_h = self.input_size
+
+        # Letterbox resize (preserve aspect ratio, paste top-left)
+        im_ratio = img.shape[0] / img.shape[1]
+        model_ratio = input_h / input_w
+        if im_ratio > model_ratio:
+            new_h = input_h
+            new_w = int(new_h / im_ratio)
+        else:
+            new_w = input_w
+            new_h = int(new_w * im_ratio)
+
+        det_scale = new_h / img.shape[0]
+        resized = cv2.resize(img, (new_w, new_h))
+        det_img = np.zeros((input_h, input_w, 3), dtype=np.uint8)
+        det_img[:new_h, :new_w, :] = resized
+
+        # CLAHE on detection input only (helps dark/low-contrast images)
+        lab = cv2.cvtColor(det_img, cv2.COLOR_BGR2LAB)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        det_img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+        blob = cv2.dnn.blobFromImage(
+            det_img, 1.0 / 128.0, (input_w, input_h),
+            (127.5, 127.5, 127.5), swapRB=True,
+        )
+        self.net.setInput(blob)
+        net_outs = self.net.forward(self.output_names)
+
+        fmc = len(self.feat_stride_fpn)
+        scores_list, bboxes_list, kpss_list = [], [], []
+
+        for idx, stride in enumerate(self.feat_stride_fpn):
+            scores = net_outs[idx][0]
+            bbox_preds = net_outs[idx + fmc][0] * stride
+            height = blob.shape[2] // stride
+            width = blob.shape[3] // stride
+            anchor_centers = self._get_anchor_centers(height, width, stride)
+
+            pos_inds = np.where(scores >= threshold)[0]
+            bboxes = _distance2bbox(anchor_centers, bbox_preds)
+            scores_list.append(scores[pos_inds])
+            bboxes_list.append(bboxes[pos_inds])
+
+            if self.use_kps:
+                kps_preds = net_outs[idx + fmc * 2][0] * stride
+                kpss = _distance2kps(anchor_centers, kps_preds).reshape((-1, 5, 2))
+                kpss_list.append(kpss[pos_inds])
+
+        if not scores_list or all(len(s) == 0 for s in scores_list):
+            return np.empty((0, 5), dtype=np.float32), None
+
+        scores = np.vstack(scores_list).ravel()
+        order = scores.argsort()[::-1]
+        bboxes = np.vstack(bboxes_list) / det_scale
+        pre_det = np.hstack((bboxes, scores[:, None])).astype(np.float32)[order]
+
+        # NMS
+        keep = self._nms(pre_det)
+        det = pre_det[keep]
+
+        kpss = None
+        if self.use_kps and kpss_list:
+            kpss = np.vstack(kpss_list)[order][keep] / det_scale
+
+        if max_num > 0 and det.shape[0] > max_num:
+            area = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
+            img_center = (img.shape[0] // 2, img.shape[1] // 2)
+            offsets = np.vstack([
+                (det[:, 0] + det[:, 2]) / 2 - img_center[1],
+                (det[:, 1] + det[:, 3]) / 2 - img_center[0],
+            ])
+            values = area - np.sum(offsets ** 2, axis=0) * 2.0
+            bindex = np.argsort(values)[::-1][:max_num]
+            det = det[bindex]
+            if kpss is not None:
+                kpss = kpss[bindex]
+
+        return det, kpss
+
+    def _nms(self, dets: np.ndarray) -> list[int]:
+        x1, y1, x2, y2, scores = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3], dets[:, 4]
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        order = scores.argsort()[::-1]
+        keep = []
+        while order.size > 0:
+            i = order[0]
+            keep.append(int(i))
+            xx1 = np.maximum(x1[i], x1[order[1:]])
+            yy1 = np.maximum(y1[i], y1[order[1:]])
+            xx2 = np.minimum(x2[i], x2[order[1:]])
+            yy2 = np.minimum(y2[i], y2[order[1:]])
+            w = np.maximum(0.0, xx2 - xx1 + 1)
+            h = np.maximum(0.0, yy2 - yy1 + 1)
+            ovr = (w * h) / (areas[i] + areas[order[1:]] - w * h)
+            inds = np.where(ovr <= self.nms_threshold)[0]
+            order = order[inds + 1]
+        return keep
 
 
 # ---------------------------------------------------------------------------
@@ -170,20 +348,18 @@ def download_models() -> None:
 
 
 def load_models(app: FastAPI) -> None:
-    """Download (if needed) and load YuNet face detector + InsightFace genderage model."""
+    """Download (if needed) and load all models."""
     download_models()
 
-    # Face detector — OpenCV's built-in YuNet API
-    app.state.face_detector = cv2.FaceDetectorYN.create(
-        os.path.join(settings.model_dir, "face_detection_yunet_2023mar.onnx"),
-        "",
-        (0, 0),  # input size set per-image before detection
-        score_threshold=settings.confidence_threshold,
-        nms_threshold=0.3,
-        top_k=5000,
+    # Face detector — SCRFD 10G with keypoints (WIDERFace Hard AP 82.8%)
+    app.state.face_detector = SCRFDDetector(
+        os.path.join(settings.model_dir, "scrfd_10g_kps.onnx"),
+        input_size=(640, 640),
+        conf_threshold=settings.confidence_threshold,
+        nms_threshold=0.4,
     )
 
-    # Age + Gender — single ONNX model (regression-based continuous age)
+    # Age + Gender — InsightFace regression-based continuous age
     app.state.genderage_net = cv2.dnn.readNetFromONNX(
         os.path.join(settings.model_dir, "genderage.onnx")
     )
@@ -193,7 +369,12 @@ def load_models(app: FastAPI) -> None:
         os.path.join(settings.model_dir, "emotion-ferplus-8.onnx")
     )
 
-    logger.info("All models loaded (YuNet + InsightFace genderage + FER+ emotion)")
+    # FairFace — racially balanced gender classifier (fixes expression/race bias)
+    app.state.fairface_net = cv2.dnn.readNetFromONNX(
+        os.path.join(settings.model_dir, "fairface.onnx")
+    )
+
+    logger.info("All models loaded (SCRFD + InsightFace + FER+ + FairFace)")
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +388,7 @@ async def lifespan(app: FastAPI):
     app.state.face_detector = None
     app.state.genderage_net = None
     app.state.emotion_net = None
+    app.state.fairface_net = None
     try:
         load_models(app)
     except Exception as exc:
@@ -217,8 +399,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Lite-Vision",
-    description="Real-time age and gender detection API powered by YuNet + InsightFace ONNX models.",
-    version="3.0.0",
+    description="Real-time age and gender detection API powered by SCRFD + InsightFace + FairFace ONNX models.",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
@@ -399,6 +581,50 @@ def _detect_emotion(face_roi: np.ndarray, emotion_net: cv2.dnn.Net) -> tuple[str
 
 
 # ---------------------------------------------------------------------------
+# FairFace gender classifier (racially balanced — fixes expression/race bias)
+# ---------------------------------------------------------------------------
+
+# FairFace age bin midpoints for converting bins to continuous age estimates
+FAIRFACE_AGE_BINS = [1, 6, 15, 25, 35, 45, 55, 65, 75]  # midpoints of 0-2,3-9,10-19,...,70+
+
+
+def _predict_fairface(
+    face_roi: np.ndarray, fairface_net: cv2.dnn.Net,
+) -> tuple[str, float, int]:
+    """Predict gender and age using FairFace ResNet34.
+
+    Returns (gender, gender_confidence, age_estimate).
+    Separate output heads: age_output(9), gender_output(2), race_output(7).
+    Gender: 0=Male, 1=Female.
+    """
+    face_224 = cv2.resize(face_roi, (224, 224)).astype(np.float32)
+    # ImageNet normalization (FairFace uses standard PyTorch transforms)
+    blob = cv2.dnn.blobFromImage(
+        face_224, 1.0 / 255.0, (224, 224), (0, 0, 0), swapRB=True,
+    )
+    blob[0, 0] = (blob[0, 0] - 0.485) / 0.229  # R
+    blob[0, 1] = (blob[0, 1] - 0.456) / 0.224  # G
+    blob[0, 2] = (blob[0, 2] - 0.406) / 0.225  # B
+
+    fairface_net.setInput(blob)
+    outs = fairface_net.forward(["age_output", "gender_output", "race_output"])
+    age_logits = outs[0][0]     # shape (9,) — 9 age bins
+    gender_logits = outs[1][0]  # shape (2,) — [Male, Female]
+
+    # Gender
+    gender_probs = _softmax(gender_logits)
+    gender_idx = int(np.argmax(gender_probs))
+    gender = "Male" if gender_idx == 0 else "Female"
+    gender_conf = float(gender_probs[gender_idx])
+
+    # Age: weighted bin midpoint average
+    age_probs = _softmax(age_logits)
+    age_estimate = int(round(float(np.sum(age_probs * np.array(FAIRFACE_AGE_BINS)))))
+
+    return gender, gender_conf, age_estimate
+
+
+# ---------------------------------------------------------------------------
 # Multi-crop ensemble for robust age + gender
 # ---------------------------------------------------------------------------
 
@@ -480,90 +706,121 @@ def _multi_crop_ensemble(
 
 def _run_inference(
     img: np.ndarray,
-    face_detector: cv2.FaceDetectorYN,
+    face_detector: SCRFDDetector,
     genderage_net: cv2.dnn.Net,
     max_faces: int,
     emotion_net: cv2.dnn.Net | None = None,
+    fairface_net: cv2.dnn.Net | None = None,
 ) -> list[FaceResult]:
-    """Detect faces with YuNet, align, and predict age/gender with InsightFace genderage."""
+    """Detect faces with SCRFD, predict age (InsightFace) and gender (FairFace fusion)."""
     h, w = img.shape[:2]
 
-    # YuNet requires input size to be set before detection
-    face_detector.setInputSize((w, h))
-    _, faces = face_detector.detect(img)
+    # SCRFD detection (includes CLAHE preprocessing for dark images)
+    det, kpss = face_detector.detect(img, max_num=max_faces)
 
-    if faces is None:
+    if det.shape[0] == 0:
         return []
 
     results: list[FaceResult] = []
-    for i in range(faces.shape[0]):
-        if len(results) >= max_faces:
-            break
+    for i in range(det.shape[0]):
+        # SCRFD output: [x1, y1, x2, y2, score]
+        x1_det, y1_det, x2_det, y2_det, detection_confidence = det[i]
+        fx, fy = int(x1_det), int(y1_det)
+        fw, fh = int(x2_det - x1_det), int(y2_det - y1_det)
+        detection_confidence = float(detection_confidence)
 
-        # Parse YuNet output row: [x, y, w, h, ...landmarks..., score]
-        row = faces[i].astype(float)
-        fx, fy, fw, fh = int(row[0]), int(row[1]), int(row[2]), int(row[3])
-        detection_confidence = float(row[14])
+        # Extract 5 landmarks from SCRFD keypoints
+        landmarks = None
+        if kpss is not None:
+            landmarks = [
+                (float(kpss[i][j][0]), float(kpss[i][j][1]))
+                for j in range(5)
+            ]
 
-        # Extract 5 landmarks from YuNet
-        landmarks = [
-            (row[4], row[5]),     # right eye
-            (row[6], row[7]),     # left eye
-            (row[8], row[9]),     # nose tip
-            (row[10], row[11]),   # right mouth corner
-            (row[12], row[13]),   # left mouth corner
-        ]
-
-        # --- Multi-crop ensemble for robust age + gender ---
-        avg_gender_probs, median_age = _multi_crop_ensemble(
+        # --- Multi-crop ensemble for age + InsightFace gender ---
+        avg_gender_probs, age_raw = _multi_crop_ensemble(
             img, fx, fy, fw, fh, landmarks, genderage_net,
         )
 
-        gender_idx = int(np.argmax(avg_gender_probs))
-        # genderage.onnx convention: index 0 = Male, index 1 = Female
-        gender = "Male" if gender_idx == 0 else "Female"
-        gender_conf = float(avg_gender_probs[gender_idx])
+        insightface_gender_idx = int(np.argmax(avg_gender_probs))
+        insightface_gender = "Male" if insightface_gender_idx == 0 else "Female"
+        insightface_gender_conf = float(avg_gender_probs[insightface_gender_idx])
 
-        age = int(round(float(median_age) * 100))
+        age = int(round(float(age_raw) * 100))
         age = max(0, age)
+
+        # --- FairFace gender + age fusion (racially balanced) ---
+        gender = insightface_gender
+        gender_conf = insightface_gender_conf
+        if fairface_net is not None:
+            try:
+                pad_w = int(fw * 0.15)
+                pad_h = int(fh * 0.15)
+                cx1 = max(0, fx - pad_w)
+                cy1 = max(0, fy - pad_h)
+                cx2 = min(w, fx + fw + pad_w)
+                cy2 = min(h, fy + fh + pad_h)
+                ff_crop = img[cy1:cy2, cx1:cx2]
+                if ff_crop.size > 0:
+                    ff_gender, ff_conf, ff_age = _predict_fairface(ff_crop, fairface_net)
+
+                    # Gender fusion: trust FairFace (racially balanced training)
+                    if ff_gender == insightface_gender:
+                        gender = ff_gender
+                        gender_conf = max(insightface_gender_conf, ff_conf)
+                    else:
+                        gender = ff_gender
+                        gender_conf = ff_conf
+
+                    # FairFace on upper face (eye area) — detects aging through masks
+                    upper_y2 = min(h, fy + fh // 2)
+                    upper_crop = img[max(0, fy):upper_y2, max(0, fx):min(w, fx + fw)]
+                    ff_upper_age = ff_age
+                    if upper_crop.size > 0 and upper_crop.shape[0] > 10 and upper_crop.shape[1] > 10:
+                        _, _, ff_upper_age = _predict_fairface(upper_crop, fairface_net)
+
+                    # Age fusion: mask-aware strategy
+                    # If upper face looks much older than full face, face is likely
+                    # masked/occluded → trust upper-face age (wrinkles around eyes)
+                    if ff_upper_age - ff_age > 15:
+                        # Mask detected: eye-area wrinkles indicate older age
+                        age = int(round(0.15 * age + 0.85 * ff_upper_age))
+                    else:
+                        # Normal: blend InsightFace + FairFace 50/50
+                        age = int(round(0.5 * age + 0.5 * ff_age))
+            except Exception:
+                pass  # FairFace is best-effort, fall back to InsightFace
 
         # --- Emotion detection (expression-aware gender adjustment) ---
         emotion_label = None
         emotion_conf = None
         if emotion_net is not None:
             try:
-                # Use the 20% padded crop for emotion
                 pad_w = int(fw * 0.2)
                 pad_h = int(fh * 0.2)
-                x1 = max(0, fx - pad_w)
-                y1 = max(0, fy - pad_h)
-                x2 = min(w, fx + fw + pad_w)
-                y2 = min(h, fy + fh + pad_h)
-                emotion_crop = img[y1:y2, x1:x2]
+                ex1 = max(0, fx - pad_w)
+                ey1 = max(0, fy - pad_h)
+                ex2 = min(w, fx + fw + pad_w)
+                ey2 = min(h, fy + fh + pad_h)
+                emotion_crop = img[ey1:ey2, ex1:ex2]
                 if emotion_crop.size > 0:
                     emotion_label, emotion_conf = _detect_emotion(emotion_crop, emotion_net)
 
-                    # Expression-aware gender confidence adjustment:
-                    # Expressions like happiness/surprise can bias gender logits.
-                    # When such expressions are detected with high confidence,
-                    # reduce gender confidence to signal uncertainty.
                     EXPRESSIVE_EMOTIONS = {"happiness", "surprise", "contempt"}
                     if emotion_label in EXPRESSIVE_EMOTIONS and emotion_conf > 0.5:
-                        # Scale down gender confidence proportionally to expression strength
-                        adjustment = 1.0 - (emotion_conf * 0.15)  # max 15% reduction
+                        adjustment = 1.0 - (emotion_conf * 0.15)
                         gender_conf *= adjustment
             except Exception:
-                pass  # Emotion detection is best-effort
+                pass
 
-        # Tighter age range: ±3 years (InsightFace regression is precise)
         age_min = max(0, age - 3)
         age_max = age + 3
 
-        # Normalized bounding box (0.0 - 1.0) using original (unpadded) bbox
-        x_norm = round(fx / w, 6)
-        y_norm = round(fy / h, 6)
-        w_norm = round(fw / w, 6)
-        h_norm = round(fh / h, 6)
+        # Normalized bounding box (0.0 - 1.0)
+        x_norm = round(max(0, fx) / w, 6)
+        y_norm = round(max(0, fy) / h, 6)
+        w_norm = round(min(fw, w - fx) / w, 6)
+        h_norm = round(min(fh, h - fy) / h, 6)
 
         results.append(FaceResult(
             age=age,
@@ -632,6 +889,7 @@ async def _inference_pipeline(
             app.state.genderage_net,
             max_faces,
             app.state.emotion_net,
+            app.state.fairface_net,
         )
 
     elapsed = (time.perf_counter() - t0) * 1000
@@ -666,15 +924,17 @@ async def _inference_pipeline(
 async def health():
     models_loaded = all(
         x is not None
-        for x in (app.state.face_detector, app.state.genderage_net, app.state.emotion_net)
+        for x in (app.state.face_detector, app.state.genderage_net,
+                  app.state.emotion_net, app.state.fairface_net)
     )
     return {
         "status": "ok",
         "models_loaded": models_loaded,
         "models": {
-            "face_detector": "YuNet (face_detection_yunet_2023mar.onnx)",
+            "face_detector": "SCRFD 10G KPS (scrfd_10g_kps.onnx)",
             "age_gender": "InsightFace genderage.onnx (regression age + softmax gender)",
             "emotion": "FER+ emotion-ferplus-8.onnx (expression-aware gender correction)",
+            "gender_fairface": "FairFace ResNet34 (racially balanced gender classifier)",
         },
     }
 
