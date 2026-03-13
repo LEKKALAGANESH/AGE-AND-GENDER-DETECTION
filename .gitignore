@@ -19,7 +19,6 @@ npm-debug.log*
 
 # AI / ML Models (auto-downloaded at runtime)
 models/
-*.caffemodel
 *.onnx
 
 # IDE
