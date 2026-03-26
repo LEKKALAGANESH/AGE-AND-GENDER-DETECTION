@@ -20,12 +20,12 @@ cloud and containerized environments.
 
 ### Multi-Model Inference Pipeline
 
-| Model | Role |
-|---|---|
-| **SCRFD 10G KPS** | High-accuracy face detection with keypoint localization |
-| **InsightFace GenderAge** | Primary age and gender estimation |
-| **FER+** | Seven-class facial emotion recognition |
-| **FairFace ResNet34** | Racially-balanced gender classification for bias correction |
+| Model                     | Role                                                        |
+| ------------------------- | ----------------------------------------------------------- |
+| **SCRFD 10G KPS**         | High-accuracy face detection with keypoint localization     |
+| **InsightFace GenderAge** | Primary age and gender estimation                           |
+| **FER+**                  | Seven-class facial emotion recognition                      |
+| **FairFace ResNet34**     | Racially-balanced gender classification for bias correction |
 
 ### Robustness Techniques
 
@@ -55,30 +55,30 @@ cloud and containerized environments.
 
 ## Technology Stack
 
-| Layer | Technology |
-|---|---|
-| **Backend** | Python 3.14, FastAPI, OpenCV (`cv2.dnn`), ONNX Runtime |
-| **Frontend** | Next.js 15, React, TypeScript, Tailwind CSS |
+| Layer          | Technology                                              |
+| -------------- | ------------------------------------------------------- |
+| **Backend**    | Python 3.14, FastAPI, OpenCV (`cv2.dnn`), ONNX Runtime  |
+| **Frontend**   | Next.js 15, React, TypeScript, Tailwind CSS             |
 | **ML Runtime** | ONNX models only -- no PyTorch or TensorFlow dependency |
-| **Deployment** | Vercel (frontend), Railway / Docker (backend) |
-| **Testing** | pytest (backend), Vitest (frontend) |
+| **Deployment** | Vercel (frontend), Railway / Docker (backend)           |
+| **Testing**    | pytest (backend), Vitest (frontend)                     |
 
 ### API Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/analyze` | Accepts a base64-encoded image and returns detection results |
-| `POST` | `/api/upload` | Accepts a multipart file upload and returns detection results |
-| `GET` | `/api/health` | Returns service health status and model readiness |
+| Method | Path           | Description                                                   |
+| ------ | -------------- | ------------------------------------------------------------- |
+| `POST` | `/api/analyze` | Accepts a base64-encoded image and returns detection results  |
+| `POST` | `/api/upload`  | Accepts a multipart file upload and returns detection results |
+| `GET`  | `/api/health`  | Returns service health status and model readiness             |
 
 ---
 
 ## Performance Metrics
 
-| Metric | Result |
-|---|---|
-| Integration test images passing | **7 / 7** |
-| Unit tests passing | **73 / 73** |
+| Metric                          | Result      |
+| ------------------------------- | ----------- |
+| Integration test images passing | **7 / 7**   |
+| Unit tests passing              | **73 / 73** |
 
 All tests validate end-to-end correctness across diverse demographics, lighting
 conditions, occlusion scenarios, and expression variations.

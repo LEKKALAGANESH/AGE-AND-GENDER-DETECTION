@@ -2,13 +2,18 @@
 
 A high-performance, zero-database age and gender detection system. FastAPI backend with multi-model ONNX inference, Next.js 15 frontend with live webcam streaming.
 
+<p align="center">
+  <img src="Work%20Images/result_live_detection_male.png" alt="Lite-Vision live webcam detection — Male, 26 yrs, bounding box overlay with emotion classification" width="680">
+</p>
+<p align="center"><em>Live webcam detection with real-time bounding boxes, age/gender prediction, and emotion classification</em></p>
+
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Backend** | Python 3.10+, FastAPI, OpenCV DNN, Uvicorn |
-| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
-| **Models** | SCRFD, InsightFace, FER+, FairFace (ONNX) |
+| Layer         | Technology                                         |
+| ------------- | -------------------------------------------------- |
+| **Backend**   | Python 3.10+, FastAPI, OpenCV DNN, Uvicorn         |
+| **Frontend**  | Next.js 15, React 19, TypeScript, Tailwind CSS     |
+| **Models**    | SCRFD, InsightFace, FER+, FairFace (ONNX)          |
 | **Inference** | OpenCV DNN module — no TensorFlow/PyTorch required |
 
 ## Project Structure
@@ -60,6 +65,8 @@ age_gender_detection/
 
 ```bash
 cd backend
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python -m uvicorn main:app --reload
 ```
@@ -85,6 +92,7 @@ The dashboard opens at `http://localhost:3000`.
 Accepts a base64-encoded image and returns detected faces with age, gender, and emotion predictions.
 
 **Request:**
+
 ```json
 {
   "image": "data:image/jpeg;base64,/9j/4AAQ..."
@@ -92,6 +100,7 @@ Accepts a base64-encoded image and returns detected faces with age, gender, and 
 ```
 
 **Response:**
+
 ```json
 {
   "results": [
@@ -102,7 +111,7 @@ Accepts a base64-encoded image and returns detected faces with age, gender, and 
       "gender": "Male",
       "gender_confidence": 0.95,
       "confidence": 0.87,
-      "region": [0.12, 0.05, 0.18, 0.20],
+      "region": [0.12, 0.05, 0.18, 0.2],
       "emotion": "neutral",
       "emotion_confidence": 0.72
     }
@@ -149,14 +158,54 @@ Interactive Swagger UI available at `http://localhost:8000/docs`.
 - **Canvas Overlay** — gender-colored bounding boxes with age/emotion labels
 - **Zero Database** — stateless API, no external services needed
 
+## Screenshots
+
+The app handles a wide range of subjects — different ages, ethnicities, lighting conditions, and expressions.
+
+### Upload Mode
+
+Drag-and-drop or file upload with instant analysis results.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="Work%20Images/result_young_woman_outdoors.png" alt="Young woman — Female, ~24 yrs, Happiness 100%" width="100%">
+      <br><strong>Female, ~24 yrs</strong> · Happiness 100% · 85.5% confidence
+    </td>
+    <td align="center" width="50%">
+      <img src="Work%20Images/result_elderly_man_with_glasses.png" alt="Elderly man — Male, ~72 yrs, Happiness 100%" width="100%">
+      <br><strong>Male, ~72 yrs</strong> · Happiness 100% · 86.2% confidence
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="Work%20Images/result_elderly_woman_in_market.png" alt="Elderly woman in market — Female, detected in outdoor scene" width="100%">
+      <br><strong>Female, outdoor market scene</strong> · Natural lighting
+    </td>
+    <td align="center" width="50%">
+      <img src="Work%20Images/result_middle_aged_woman_dark_background.png" alt="Middle-aged woman — Female, ~36 yrs, Neutral 87%" width="100%">
+      <br><strong>Female, ~36 yrs</strong> · Neutral 87% · Low-key lighting
+    </td>
+  </tr>
+</table>
+
+### Live Webcam Mode
+
+Real-time detection with canvas-drawn bounding boxes, gender-colored labels, and emotion overlays.
+
+<p align="center">
+  <img src="Work%20Images/result_live_detection_male.png" alt="Live webcam detection — Male, 26 yrs, Neutral 97%, bounding box overlay" width="680">
+</p>
+<p align="center"><strong>Male, ~26 yrs</strong> · Neutral 97% · 78.7% face confidence · Live Detect + Capture + Stop controls</p>
+
 ## Model Details
 
-| Model | File | Purpose | Details |
-|-------|------|---------|---------|
-| **SCRFD 10G KPS** | `scrfd_10g_kps.onnx` | Face detection | 82.8% WIDERFace Hard AP, outputs 5 facial landmarks |
-| **InsightFace** | `genderage.onnx` | Age + gender | Continuous age regression (0-100), binary gender classification |
-| **FER+** | `emotion-ferplus-8.onnx` | Emotion classification | 8 classes: neutral, happiness, surprise, sadness, anger, disgust, fear, contempt |
-| **FairFace** | `fairface.onnx` | Gender bias correction | Racially-balanced gender classifier (95.7% accuracy), fused with InsightFace |
+| Model             | File                     | Purpose                | Details                                                                          |
+| ----------------- | ------------------------ | ---------------------- | -------------------------------------------------------------------------------- |
+| **SCRFD 10G KPS** | `scrfd_10g_kps.onnx`     | Face detection         | 82.8% WIDERFace Hard AP, outputs 5 facial landmarks                              |
+| **InsightFace**   | `genderage.onnx`         | Age + gender           | Continuous age regression (0-100), binary gender classification                  |
+| **FER+**          | `emotion-ferplus-8.onnx` | Emotion classification | 8 classes: neutral, happiness, surprise, sadness, anger, disgust, fear, contempt |
+| **FairFace**      | `fairface.onnx`          | Gender bias correction | Racially-balanced gender classifier (95.7% accuracy), fused with InsightFace     |
 
 All models run on CPU via OpenCV's DNN module (ONNX format). No GPU required.
 
@@ -183,13 +232,13 @@ All models run on CPU via OpenCV's DNN module (ONNX format). No GPU required.
 
 Environment variables (prefix `LITEVISION_`):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LITEVISION_CONFIDENCE_THRESHOLD` | `0.7` | Face detection confidence threshold |
-| `LITEVISION_MAX_CACHE_SIZE` | `100` | Maximum cached frames |
-| `LITEVISION_CORS_ORIGINS` | `["*"]` | CORS allowed origins |
-| `LITEVISION_MAX_IMAGE_DIMENSION` | `4096` | Max input image dimension (px) |
-| `LITEVISION_MAX_CONCURRENT_INFERENCES` | `4` | Concurrent inference limit |
+| Variable                               | Default | Description                         |
+| -------------------------------------- | ------- | ----------------------------------- |
+| `LITEVISION_CONFIDENCE_THRESHOLD`      | `0.7`   | Face detection confidence threshold |
+| `LITEVISION_MAX_CACHE_SIZE`            | `100`   | Maximum cached frames               |
+| `LITEVISION_CORS_ORIGINS`              | `["*"]` | CORS allowed origins                |
+| `LITEVISION_MAX_IMAGE_DIMENSION`       | `4096`  | Max input image dimension (px)      |
+| `LITEVISION_MAX_CONCURRENT_INFERENCES` | `4`     | Concurrent inference limit          |
 
 ## Deployment
 
@@ -229,28 +278,28 @@ npm test
 
 Comprehensive project documentation is available in the [`reports/`](reports/) folder:
 
-| Document | Description |
-|----------|-------------|
-| [Project Overview](reports/PROJECT_OVERVIEW.md) | Executive summary |
-| [Architecture](reports/ARCHITECTURE.md) | System architecture and diagrams |
-| [Models](reports/MODELS.md) | ML model specifications and fusion logic |
-| [API Reference](reports/API_REFERENCE.md) | Complete endpoint documentation |
-| [Inference Pipeline](reports/INFERENCE_PIPELINE.md) | Step-by-step pipeline with flowcharts |
-| [Frontend Architecture](reports/FRONTEND_ARCHITECTURE.md) | Component and data flow documentation |
-| [Testing Strategy](reports/TESTING_STRATEGY.md) | Test framework, mocks, and coverage |
-| [Deployment Guide](reports/DEPLOYMENT_GUIDE.md) | Local, Docker, and cloud deployment |
-| [Performance Report](reports/PERFORMANCE_REPORT.md) | Accuracy benchmarks and metrics |
-| [Changelog](reports/CHANGELOG.md) | Version history |
+| Document                                                  | Description                              |
+| --------------------------------------------------------- | ---------------------------------------- |
+| [Project Overview](reports/PROJECT_OVERVIEW.md)           | Executive summary                        |
+| [Architecture](reports/ARCHITECTURE.md)                   | System architecture and diagrams         |
+| [Models](reports/MODELS.md)                               | ML model specifications and fusion logic |
+| [API Reference](reports/API_REFERENCE.md)                 | Complete endpoint documentation          |
+| [Inference Pipeline](reports/INFERENCE_PIPELINE.md)       | Step-by-step pipeline with flowcharts    |
+| [Frontend Architecture](reports/FRONTEND_ARCHITECTURE.md) | Component and data flow documentation    |
+| [Testing Strategy](reports/TESTING_STRATEGY.md)           | Test framework, mocks, and coverage      |
+| [Deployment Guide](reports/DEPLOYMENT_GUIDE.md)           | Local, Docker, and cloud deployment      |
+| [Performance Report](reports/PERFORMANCE_REPORT.md)       | Accuracy benchmarks and metrics          |
+| [Changelog](reports/CHANGELOG.md)                         | Version history                          |
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| `uvicorn` not found | Run with `python -m uvicorn main:app --reload` |
-| Model download fails | Check internet connection; models download from GitHub/HuggingFace |
-| Webcam not working | Allow camera permissions in your browser |
-| CORS error | Backend must be running on `localhost:8000` |
-| TensorFlow/PyTorch errors | Not needed — this project uses OpenCV DNN only |
+| Problem                   | Solution                                                           |
+| ------------------------- | ------------------------------------------------------------------ |
+| `uvicorn` not found       | Run with `python -m uvicorn main:app --reload`                     |
+| Model download fails      | Check internet connection; models download from GitHub/HuggingFace |
+| Webcam not working        | Allow camera permissions in your browser                           |
+| CORS error                | Backend must be running on `localhost:8000`                        |
+| TensorFlow/PyTorch errors | Not needed — this project uses OpenCV DNN only                     |
 
 ## License
 
