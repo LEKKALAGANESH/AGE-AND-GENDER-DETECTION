@@ -280,7 +280,7 @@ This approach works on AWS ECS, GCP Cloud Run, Azure Container Instances, or any
 │                         │  ───────────────────>   │                          │
 │   Frontend (Vercel)     │                         │   Backend (Railway /     │
 │   Next.js 15            │  <───────────────────   │   Docker)                │
-│   Port 3000 (dev)       │    JSON responses       │   FastAPI + ONNX Runtime │
+│   Port 3000 (dev)       │    JSON responses       │   FastAPI + OpenCV DNN   │
 │                         │                         │   Port 8000 (dev)        │
 └─────────────────────────┘                         └──────────────────────────┘
         │                                                     │

@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- SCRFD 10G KPS face detector, replacing YuNet (WIDERFace Hard AP: 70.8% to 82.8%).
-- FairFace ResNet34 model for racially-balanced gender classification (95.7% accuracy).
+- SCRFD 10G KPS face detector, replacing YuNet (upstream-published WIDERFace Hard AP: 70.8% to 82.8% — the authors' figures, not measured here).
+- FairFace ResNet34 model for racially-balanced gender classification (95.7% accuracy as published by the FairFace authors).
 - Multi-crop ensemble (3 crop variants) for expression-robust gender detection.
 - Mask-aware age fusion: FairFace upper-face analysis detects aging through masks.
 - CLAHE preprocessing in SCRFD detection for dark and low-contrast images.
@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SCRFDDetector class with NMS, anchor caching, and letterbox resize.
 - `_predict_fairface()` with ImageNet normalization and 3 output heads.
 - `_align_face()` with ArcFace similarity transform.
-- 73 unit tests passing across the test suite.
+- 73 backend unit tests passing (85 total across backend and frontend), all against mocked inference.
 
 ### Changed
 
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disagreement defers to FairFace.
 - Age fusion: 50/50 InsightFace + FairFace blend under normal conditions,
   15/85 InsightFace + upper-face blend when a mask is detected.
-- Test score improved from 4/7 to 7/7 on edge case test images.
+- Manual edge-case review: scenarios that visibly failed under v3.0 (masked faces, low light) produced plausible output under v4.0. Checked by eye, not scored — no pass rate is claimed.
 - API version bumped to 4.0.0.
 
 ### Removed

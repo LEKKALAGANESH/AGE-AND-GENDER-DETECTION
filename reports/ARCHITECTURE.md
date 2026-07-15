@@ -136,7 +136,7 @@ interface AnalyzeResponse {
 
 ## Backend
 
-**Stack:** FastAPI, Python 3.14, OpenCV DNN, ONNX Runtime (via cv2.dnn)
+**Stack:** FastAPI, Python 3.14, OpenCV DNN (`cv2.dnn`, ONNX model format — the `onnxruntime` package is not used)
 
 ### File Structure
 
@@ -277,7 +277,7 @@ The cache is module-level and protected by the GIL, so no explicit lock is requi
 
 | Model | File | Purpose | Source |
 |-------|------|---------|--------|
-| SCRFD 10G KPS | `scrfd_10g_kps.onnx` | Face detection with 5-point landmarks. WIDERFace Hard AP 82.8%. | GitHub (HeyGem release) |
+| SCRFD 10G KPS | `scrfd_10g_kps.onnx` | Face detection with 5-point landmarks. Authors report WIDERFace Hard AP 82.8% (upstream published figure, not measured here). | GitHub (HeyGem release) |
 | InsightFace GenderAge | `genderage.onnx` | Regression-based continuous age + softmax gender. | HuggingFace (InsightFace buffalo_l) |
 | FairFace ResNet34 | `fairface.onnx` | Racially balanced gender/age/race classification. | GitHub (fairface-onnx release) |
 | FER+ | `emotion-ferplus-8.onnx` | Facial expression recognition (8 emotions). | ONNX Model Zoo |

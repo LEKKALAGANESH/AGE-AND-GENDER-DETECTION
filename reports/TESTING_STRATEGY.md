@@ -23,13 +23,15 @@ design guarantees:
 
 | Layer | Framework | Test Files | Tests | Status |
 |---|---|---|---|---|
-| Backend unit | pytest + FastAPI TestClient | 2 | 36 | All passing |
-| Backend integration | pytest (7 edge-case images) | -- | 7 | All passing |
-| Frontend unit | Vitest + Testing Library | 1 | 6 | All passing |
-| **Total** | | **3** | **49+** | **All passing** |
+| Backend unit | pytest + FastAPI TestClient | 6 | 73 | All passing |
+| Frontend unit | Vitest + Testing Library | 2 | 12 | All passing |
+| **Total** | | **8** | **85** | **All passing** |
 
-> 73 unit tests passing in CI; 7/7 integration test images passing with SCRFD + FairFace
-> fusion.
+> 85 automated tests passing in CI (73 backend + 12 frontend).
+>
+> **All of them mock model inference.** There is no automated integration suite that runs
+> real ONNX models over real images -- the edge-case image matrix below was checked by hand,
+> not by pytest. No test in this repository measures prediction accuracy.
 
 ---
 
@@ -203,12 +205,16 @@ frontend/
 
 ---
 
-## Integration Testing
+## Manual Edge-Case Review
 
 ### Edge-Case Image Matrix
 
-Seven integration test images validate the full SCRFD + FairFace fusion pipeline against
-real-world challenges:
+> **Not automated.** The scenarios below were exercised **by hand** against a locally running
+> instance and judged by eye. They are **not** part of `pytest`, are not run in CI, and are not
+> scored against ground-truth labels. Treat this as a developer sanity checklist.
+
+The matrix describes the real-world challenges the SCRFD + FairFace fusion pipeline was
+manually sanity-checked against:
 
 | # | Scenario | Challenge | Expected Behavior |
 |---|---|---|---|
@@ -220,7 +226,9 @@ real-world challenges:
 | 6 | Different racial backgrounds | Demographic diversity | FairFace fusion corrects demographic bias |
 | 7 | Multiple faces in one image | Multi-face detection | All faces detected with independent predictions |
 
-**Result: 7/7 passing** with the SCRFD + FairFace fusion pipeline.
+**Result:** each scenario produced plausible output by eye with the SCRFD + FairFace fusion
+pipeline. No score is reported -- a hand-picked sample judged without labels does not support
+a pass rate or an accuracy figure.
 
 ---
 
@@ -277,7 +285,7 @@ npx vitest run
 
 ### Why mock at the model layer, not the HTTP layer?
 
-Mocking at the OpenCV DNN / ONNX Runtime interface (`net.forward()`, `detector.detect()`)
+Mocking at the OpenCV DNN interface (`net.forward()`, `detector.detect()`)
 exercises the full application logic -- image decoding, face alignment, multi-crop
 cropping, softmax computation, confidence adjustment, and JSON serialization. HTTP-level
 mocks would bypass all of this and test only routing.

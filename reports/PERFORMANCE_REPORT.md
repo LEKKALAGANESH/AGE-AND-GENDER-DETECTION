@@ -2,15 +2,20 @@
 
 > **Version:** 4.0 (SCRFD + FairFace)
 > **Date:** March 2026
-> **Test Suite:** 73 unit tests | 7 integration test images
+> **Test Suite:** 85 automated tests (73 backend pytest + 12 frontend Vitest), all run against mocked inference
 > **Status:** All tests passing
+>
+> **Scope note:** This document reports **pipeline and integration behaviour, not model
+> accuracy.** Every automated test mocks the ONNX networks, so no number here measures how
+> well the models predict age or gender. Accuracy figures quoted for SCRFD and FairFace are
+> **published by their upstream authors** and were not reproduced or measured in this project.
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Model Accuracy](#model-accuracy)
+2. [Manual Edge-Case Spot-Check](#manual-edge-case-spot-check-not-an-accuracy-benchmark)
 3. [Version Comparison](#version-comparison)
 4. [Inference Performance](#inference-performance)
 5. [Architecture Performance](#architecture-performance)
@@ -22,41 +27,58 @@
 
 ## Executive Summary
 
-Lite-Vision v4.0 achieves **100% pass rate** across all 7 benchmark test images, up from 57% (4/7) in v3.0. The upgrade from YuNet to SCRFD for face detection and the addition of FairFace for gender classification resolved all prior failure modes, including masked-face detection, low-light robustness, and cross-racial accuracy.
+Lite-Vision v4.0 replaces YuNet with SCRFD for face detection and adds FairFace for gender
+classification. In a **manual, by-eye spot-check** of a handful of hard sample images, the
+v4.0 pipeline produced sensible output on scenarios where v3.0 visibly failed — masked
+faces, low light, and cross-racial gender calls. This was an informal developer check, not
+a scored benchmark, and it is not reproducible from this repository.
 
 ---
 
-## Model Accuracy
+## Manual Edge-Case Spot-Check (not an accuracy benchmark)
 
-All 7 test images pass with correct detection, gender classification, and age estimation within a +/-10 year tolerance.
+> **Read this before quoting anything below.** The table records a **one-off manual
+> inspection** of sample images by the developer. It is **not** an accuracy benchmark and
+> carries no statistical meaning:
+>
+> - **No automated test loads these images.** The scenarios below were checked by hand and
+>   are not covered by any test in `backend/tests/`.
+> - **"Pass" means "output looked plausible to a human"**, not that it was scored against
+>   ground-truth labels.
+> - **A handful of hand-picked images cannot measure model accuracy.** Any real figure would
+>   need a held-out labelled dataset, which this project does not have.
+> - **The sample set is not fully archived.** `testing images/` ships 5 images; the 7 rows
+>   below describe scenarios exercised during development, so the table cannot be replayed
+>   as-is.
+>
+> No aggregate score is reported here, because a hand-picked sample does not support one.
 
-| Test Image | Challenge | Detection | Gender | Age (+/-10) | Result |
-|---|---|---|---|---|---|
-| Normal face | Baseline | Pass | Pass | Pass | **PASS** |
-| Masked face | Surgical mask occlusion | Pass (SCRFD) | Pass (FairFace) | Pass (mask-aware fusion) | **PASS** |
-| Dark lighting | Low contrast / exposure | Pass (CLAHE) | Pass | Pass (50/50 blend) | **PASS** |
-| Elderly + glasses | Occlusion + aging | Pass (SCRFD) | Pass | Pass | **PASS** |
-| Young smiling woman | Expression bias | Pass | Pass (FairFace) | Pass | **PASS** |
-| Racial diversity | Cross-racial accuracy | Pass | Pass (FairFace 95.7%) | Pass | **PASS** |
-| Multiple faces | Multi-face detection | Pass (3 faces) | Pass | Pass | **PASS** |
-
-**Overall: 7 / 7 (100%)**
+| Sample Image | Challenge | Mechanism exercised | Observed by eye |
+|---|---|---|---|
+| Normal face | Baseline | Detection + fusion | Plausible |
+| Masked face | Surgical mask occlusion | SCRFD + mask-aware age fusion | Plausible |
+| Dark lighting | Low contrast / exposure | CLAHE + 50/50 age blend | Plausible |
+| Elderly + glasses | Occlusion + aging | SCRFD detection | Plausible |
+| Young smiling woman | Expression bias on gender | FairFace fusion | Plausible |
+| Racial diversity | Cross-racial gender call | FairFace fusion | Plausible |
+| Multiple faces | Multi-face detection | Per-face independent prediction | Plausible (3 faces found) |
 
 ---
 
 ## Version Comparison
 
-Performance gains from v3.0 (YuNet) to v4.0 (SCRFD + FairFace):
+Rationale for moving from v3.0 (YuNet) to v4.0 (SCRFD + FairFace):
 
-| Metric | v3.0 (YuNet) | v4.0 (SCRFD + FairFace) | Improvement |
+| Metric | v3.0 (YuNet) | v4.0 (SCRFD + FairFace) | Source |
 |---|---|---|---|
-| Face detection (WIDERFace Hard) | 70.8% AP | 82.8% AP | **+12.0%** |
-| Gender accuracy | ~85% | ~95.7% (FairFace) | **+10.7%** |
-| Masked face detection | FAIL | PASS | **Fixed** |
-| Dark lighting detection | FAIL | PASS | **Fixed** |
-| Test image score | 4 / 7 | 7 / 7 | **+43%** |
+| Face detection (WIDERFace Hard) | 70.8% AP | 82.8% AP | **Upstream published figures** (InsightFace/SCRFD authors) -- not measured here |
+| Gender accuracy | -- | 95.7% | **Upstream published figure** (FairFace paper) -- not measured here |
+| Masked face detection | Visibly failed | Looked correct | Manual spot-check |
+| Dark lighting detection | Visibly failed | Looked correct | Manual spot-check |
 
-The migration to SCRFD addresses the two critical failure modes in v3.0 -- occluded faces (masks, glasses) and low-light conditions -- while FairFace provides racially-balanced gender classification that significantly reduces demographic bias.
+The two headline percentages are the **model authors' own benchmark results on their own
+datasets**. They are the reason these models were selected; they are **not** measurements of
+this project and say nothing about how the fused pipeline performs on your data.
 
 ---
 
@@ -100,7 +122,7 @@ The LRU cache uses SHA-256 content hashing for deduplication, ensuring that iden
 | FairFace ResNet34 | `fairface.onnx` | 85.2 MB |
 | **Total** | | **~102 MB** |
 
-All models are loaded at startup and held in memory for the lifetime of the process. ONNX Runtime is used as the inference backend.
+All models are loaded at startup and held in memory for the lifetime of the process. Inference runs through **OpenCV's DNN module** (`cv2.dnn.readNetFromONNX`) -- the `onnxruntime` package is **not** a dependency of this project.
 
 ---
 
@@ -108,17 +130,33 @@ All models are loaded at startup and held in memory for the lifetime of the proc
 
 | Stat | Value |
 |---|---|
-| Total tests | 73 |
-| Passing | 73 |
+| Backend tests (pytest) | 73 |
+| Frontend tests (Vitest) | 12 |
+| **Total** | **85** |
+| Passing | 85 |
 | Failing | 0 |
-| Pass rate | 100% |
 
-**Test files:**
+**Backend test files (`backend/tests/`):**
 
-- `test_expression_robustness.py` -- validates consistent predictions across facial expressions and edge cases.
-- `test_model_quality.py` -- validates detection, gender, and age accuracy against the 7 benchmark images.
+- `test_analyze.py` (15) -- `/api/analyze` request handling and response contract.
+- `test_expression_robustness.py` (16) -- consistent response shape across expression and edge-case inputs.
+- `test_health.py` (4) -- `/api/health` readiness and model-status reporting.
+- `test_model_quality.py` (20) -- response **structure, variability, and determinism** (see caveat below).
+- `test_multi_face.py` (9) -- multi-face response handling.
+- `test_validation.py` (9) -- input validation and rejection of malformed payloads.
+
+**Frontend test files (`frontend/src/`):**
+
+- `components/__tests__/Camera.test.tsx` (6) -- camera component rendering and controls.
+- `lib/__tests__/api.test.ts` (6) -- API client behaviour.
 
 All tests run with **mocked models**, requiring no real ONNX model files on the test runner. This allows the full suite to execute in CI environments without large binary dependencies.
+
+> **Caveat on `test_model_quality.py`:** despite the name, it does **not** measure model
+> accuracy. The mocked networks return fixed, deterministic outputs regardless of input, and
+> the inputs are synthetic shapes drawn with OpenCV primitives -- not real faces. These tests
+> assert that the API returns well-formed, varied, non-bucketed values; they cannot and do
+> not validate prediction correctness.
 
 ---
 

@@ -82,9 +82,12 @@ The model uses an **anchor-based detection** scheme with three feature map strid
 
 ### Benchmark
 
+> **Upstream published figures**, reported by the SCRFD and YuNet authors on the WIDERFace
+> benchmark. Not measured or reproduced in this project.
+
 | Metric | SCRFD 10G KPS | YuNet (previous) |
 |---|---|---|
-| WIDERFace Hard AP | **82.8%** | 70.8% |
+| WIDERFace Hard AP (upstream) | **82.8%** | 70.8% |
 | Keypoint output | Yes (5 landmarks) | Yes (5 landmarks) |
 | Resize strategy | Letterbox (aspect-preserving) | Direct resize |
 
@@ -189,7 +192,7 @@ The FER+ model serves a dual purpose:
 | **Size** | ~85.2 MB |
 | **Source** | FairFace project (Karkkainen & Joo, UCLA) |
 | **Architecture** | ResNet-34 with three output heads |
-| **Gender accuracy** | 95.7% overall, max 5.5% racial disparity |
+| **Gender accuracy** | 95.7% overall, max 5.5% racial disparity — *figures published by the FairFace authors; not measured in this project* |
 | **Input** | 224 x 224 RGB |
 | **Normalization** | ImageNet standard: mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225] |
 
@@ -283,7 +286,7 @@ classification models rely on, producing less reliable predictions.
 |---|---|---|
 | **Model file** | `face_detection_yunet.onnx` | `scrfd_10g_kps.onnx` |
 | **Model size** | ~337 KB | ~16.9 MB |
-| **WIDERFace Hard AP** | 70.8% | **82.8% (+12.0 pp)** |
+| **WIDERFace Hard AP** (upstream published, not measured here) | 70.8% | **82.8% (+12.0 pp)** |
 | **Resize strategy** | Direct resize (distorts aspect ratio) | Letterbox (preserves aspect ratio) |
 | **Preprocessing** | None | CLAHE (low-light robustness) |
 | **Detection decoding** | OpenCV built-in API | Custom anchor-based (distance-to-bbox, distance-to-kps) |
@@ -306,9 +309,12 @@ classification models rely on, producing less reliable predictions.
 
 ### Summary of Improvements (v3 to v4)
 
+> Model-accuracy rows cite **upstream figures published by each model's authors**. They
+> describe the swapped-in models, not measurements of this pipeline.
+
 | Metric | Before | After |
 |---|---|---|
-| Face detection accuracy (WIDERFace Hard) | 70.8% | 82.8% |
+| Face detection accuracy (WIDERFace Hard, upstream) | 70.8% | 82.8% |
 | Gender classification | Single model, single crop | Multi-model fusion, multi-crop ensemble |
 | Racial bias in gender | Uncontrolled | Max 5.5% disparity (FairFace) |
 | Mask robustness | None | Upper-face age estimation |

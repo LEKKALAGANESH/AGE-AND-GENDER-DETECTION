@@ -57,7 +57,7 @@ cloud and containerized environments.
 
 | Layer          | Technology                                              |
 | -------------- | ------------------------------------------------------- |
-| **Backend**    | Python 3.14, FastAPI, OpenCV (`cv2.dnn`), ONNX Runtime  |
+| **Backend**    | Python 3.14, FastAPI, OpenCV (`cv2.dnn`)                |
 | **Frontend**   | Next.js 15, React, TypeScript, Tailwind CSS             |
 | **ML Runtime** | ONNX models only -- no PyTorch or TensorFlow dependency |
 | **Deployment** | Vercel (frontend), Railway / Docker (backend)           |
@@ -73,15 +73,19 @@ cloud and containerized environments.
 
 ---
 
-## Performance Metrics
+## Test Metrics
 
-| Metric                          | Result      |
-| ------------------------------- | ----------- |
-| Integration test images passing | **7 / 7**   |
-| Unit tests passing              | **73 / 73** |
+| Metric                        | Result      |
+| ----------------------------- | ----------- |
+| Backend tests (pytest)        | **73 / 73** |
+| Frontend tests (Vitest)       | **12 / 12** |
+| **Total automated tests**     | **85 / 85** |
 
-All tests validate end-to-end correctness across diverse demographics, lighting
-conditions, occlusion scenarios, and expression variations.
+These tests validate the **API contract and pipeline plumbing** -- request handling,
+validation, response shape, caching, and multi-face bookkeeping. They all run against
+**mocked model inference**, so none of them measure prediction accuracy. This project
+serves pretrained third-party models and does not train or evaluate any model; see
+[PERFORMANCE_REPORT.md](PERFORMANCE_REPORT.md) for the full scope caveat.
 
 ---
 

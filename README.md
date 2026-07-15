@@ -200,12 +200,20 @@ Real-time detection with canvas-drawn bounding boxes, gender-colored labels, and
 
 ## Model Details
 
+All four models are **pretrained, third-party models** downloaded at runtime. This project
+**trains and fine-tunes nothing** — it serves these models and fuses their outputs.
+
 | Model             | File                     | Purpose                | Details                                                                          |
 | ----------------- | ------------------------ | ---------------------- | -------------------------------------------------------------------------------- |
-| **SCRFD 10G KPS** | `scrfd_10g_kps.onnx`     | Face detection         | 82.8% WIDERFace Hard AP, outputs 5 facial landmarks                              |
+| **SCRFD 10G KPS** | `scrfd_10g_kps.onnx`     | Face detection         | Outputs 5 facial landmarks. Authors report 82.8% WIDERFace Hard AP*              |
 | **InsightFace**   | `genderage.onnx`         | Age + gender           | Continuous age regression (0-100), binary gender classification                  |
 | **FER+**          | `emotion-ferplus-8.onnx` | Emotion classification | 8 classes: neutral, happiness, surprise, sadness, anger, disgust, fear, contempt |
-| **FairFace**      | `fairface.onnx`          | Gender bias correction | Racially-balanced gender classifier (95.7% accuracy), fused with InsightFace     |
+| **FairFace**      | `fairface.onnx`          | Gender bias correction | Racially-balanced gender classifier; authors report 95.7% accuracy*              |
+
+> \* **Upstream figures, published by each model's original authors on their own benchmark
+> datasets.** They are cited as the reason these models were chosen. They were **not**
+> measured, reproduced, or verified in this project, and they do not describe the accuracy of
+> the fused pipeline.
 
 All models run on CPU via OpenCV's DNN module (ONNX format). No GPU required.
 
@@ -221,12 +229,20 @@ All models run on CPU via OpenCV's DNN module (ONNX format). No GPU required.
 
 ## Performance
 
-- Face detection + age/gender/emotion: ~30-80ms per frame (CPU)
+- Face detection + age/gender/emotion: ~30-80ms per frame (CPU) — *informal local
+  observation on a dev machine, not a benchmark; no automated test measures real model latency*
+- Live streaming is capped at **~5 fps** (200ms minimum frame gap, backpressure-gated so a
+  new frame is only scheduled after the previous response returns)
 - Supports multiple simultaneous face detections
 - Concurrency-limited inference (default: 4 concurrent requests)
 - Frame cache eliminates redundant computation
-- 7/7 edge-case test images passing (masked, dark, glasses, expressions, multi-race)
-- 73/73 unit tests passing
+- **85/85 automated tests passing** (73 backend pytest + 12 frontend Vitest)
+
+> **What the tests do and don't cover:** every automated test mocks model inference, so the
+> suite validates the API contract and pipeline plumbing — not prediction accuracy. The
+> edge-case images (masked, dark, glasses, expressions, multi-race) were checked **manually
+> by eye**, not by an automated scored benchmark. This project reports no accuracy figures of
+> its own; see [reports/PERFORMANCE_REPORT.md](reports/PERFORMANCE_REPORT.md).
 
 ## Configuration
 
